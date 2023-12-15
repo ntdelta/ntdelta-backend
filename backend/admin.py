@@ -1,5 +1,12 @@
+from __future__ import annotations
+
 from django.contrib import admin
-from .models import DLL, DLLInstance, WindowsUpdate, WindowsVersion, Function
+
+from .models import DLL
+from .models import DLLInstance
+from .models import Function
+from .models import WindowsUpdate
+from .models import WindowsVersion
 
 
 class DllInstanceAdminInline(admin.TabularInline):

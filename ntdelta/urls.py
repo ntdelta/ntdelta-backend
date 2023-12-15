@@ -14,19 +14,21 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+from __future__ import annotations
 
 from django.contrib import admin
 from django.urls import path
+
 from backend import views
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/dlls', views.dlls),
-    path('api/dlls/instances/<int:dll_instance_id>/functions', views.dll_functions),
-    path('api/dlls/instances/<int:dll_instance_id>', views.dll),
-    path('api/dlls/<str:dll_name>', views.list_dlls_by_name),
-    path('api/windows_versions', views.windows_versions),
-    path('api/windows_updates', views.windows_updates),
-    path('api/functions', views.functions),
-    path('api/functions/<int:function_id>', views.function),
+    path("admin/", admin.site.urls),
+    path("api/dlls", views.dlls),
+    path("api/dlls/instances/<int:dll_instance_id>/functions", views.dll_functions),
+    path("api/dlls/instances/<int:dll_instance_id>", views.dll),
+    path("api/dlls/<str:dll_name>", views.list_dlls_by_name),
+    path("api/windows_versions", views.windows_versions),
+    path("api/windows_updates", views.windows_updates),
+    path("api/functions", views.functions),
+    path("api/functions/<int:function_id>", views.function),
 ]
