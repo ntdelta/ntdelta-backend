@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from django.db import models
 
 
@@ -12,7 +14,10 @@ class WindowsUpdate(models.Model):
     name = models.CharField(max_length=100)
     release_date = models.CharField(max_length=100)
     release_version = models.CharField(max_length=100)
-    windows_version = models.ForeignKey(WindowsVersion, on_delete=models.CASCADE)
+    windows_version = models.ForeignKey(
+        WindowsVersion,
+        on_delete=models.CASCADE,
+    )
 
     def __str__(self):
         return f"{self.name}"
@@ -23,8 +28,12 @@ class DLL(models.Model):
     description = models.CharField(max_length=248)
 
     def get_windows_versions(self):
-        update_list = list(self.dllinstance_set.values_list('windows_updates__windows_version__name',
-                                                            'windows_updates__windows_version__id').distinct())
+        update_list = list(
+            self.dllinstance_set.values_list(
+                "windows_updates__windows_version__name",
+                "windows_updates__windows_version__id",
+            ).distinct(),
+        )
         return [{"version": item[0], "id": item[1]} for item in update_list]
 
     def __str__(self):
