@@ -10,6 +10,13 @@ import json
 import datetime
 
 
+def get_version_as_date_backup(values_dict):
+    if str(values_dict["first_seen_date"]) == '1970-01-01 00:00:00+00:00':
+        oldest_windows_update = DLLInstance.objects.get(id=values_dict["id"]).get_oldest_windows_update()
+        if oldest_windows_update:
+            values_dict["first_seen_date"] = oldest_windows_update.release_date
+
+
 def order_dlls_by_version(name):
     dll_instances = DLLInstance.objects.filter(dll__name=name)
     sorted1 = sorted(dll_instances, key=lambda obj: LooseVersion(obj.version.split(" ")[0]))
@@ -169,7 +176,7 @@ def dlls(request):
                 versions = order_dlls_by_version(dll_name)
                 versions_dict = [{
                     "id": version.id,
-                    "signing_date": version.signing_date,
+                    "first_seen_date": version.get_first_seen(),
                     "version": version.version,
                     "insider": True if (version.windows_updates.first().name[0:2] == "IP") else False
                 }
@@ -223,6 +230,14 @@ def list_dlls_by_name(request, dll_name):
             "release_date",
             "windows_version__name",
         ))
+
+        # If the singing date field in the PE is used for hashing then we can get
+        # first seen from the oldest Windows update it was contained in.
+        i["first_seen_date"] = i["signing_date"]
+        del i["signing_date"]
+
+        get_version_as_date_backup(i)
+
         counter += 1
 
     wrapper_json = {
@@ -285,7 +300,7 @@ def function(request, function_id):
     dict_obj["next_dll"] = {
         "id": dll_dict["id"],
         "version": dll_dict["version"],
-        "signing_date": str(dll_dict["signing_date"]),
+        "first_seen_date": str(dll_dict["signing_date"]),
         "sha256": dll_dict["sha256"],
         "description": dll_dict["description"],
     }
@@ -330,5 +345,12 @@ def dll(request, dll_instance_id):
     dict_obj['function_count'] = Function.objects.filter(
         dll_instance=obj
     ).count()
+
+    # If the singing date field in the PE is used for hashing then we can get
+    # first seen from the oldest Windows update it was contained in.
+    dict_obj["first_seen_date"] = dict_obj["signing_date"]
+    del dict_obj["signing_date"]
+
+    get_version_as_date_backup(dict_obj)
 
     return JsonResponse(dict_obj, safe=False, json_dumps_params={'indent': 2})
