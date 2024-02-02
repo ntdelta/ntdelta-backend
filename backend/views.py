@@ -1,13 +1,16 @@
 import base64
+from django.core import serializers
 from django.http import JsonResponse, HttpResponse
 from distutils.version import LooseVersion
-from django.forms.models import model_to_dict
 from backend.models import WindowsUpdate, DLL, Function, WindowsVersion, DLLInstance
 from django.views.decorators.cache import cache_page
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 import json
 import datetime
+from django.forms.models import model_to_dict
+from django.db.models import Prefetch, Count
+from django.views.decorators.http import require_http_methods
 
 
 def get_version_as_date_backup(values_dict):
@@ -178,7 +181,7 @@ def dlls(request):
                     "id": version.id,
                     "first_seen_date": version.get_first_seen(),
                     "version": version.version,
-                    "insider": True if (version.windows_updates.first().name[0:2] == "IP") else False
+                    "insider": version.is_insider()
                 }
                     for
                     version in versions]
@@ -206,43 +209,52 @@ def dlls(request):
 
 
 def list_dlls_by_name(request, dll_name):
-    queryset = DLLInstance.objects.filter(dll__name=dll_name)
+    try:
+        dll = DLL.objects.get(name=dll_name)
+    except DLL.DoesNotExist:
+        return JsonResponse({"error": "DLL not found"}, status=404)
 
-    queryset_values = queryset.values('id',
-                                      'signing_date',
-                                      'version',
-                                      'size',
-                                      'virtual_size',
-                                      'sha256')
+    # Pre-fetch related 'windows_updates' and their related 'windows_version'.
+    windows_updates_prefetch = Prefetch('windows_updates',
+                                        queryset=WindowsUpdate.objects.all().prefetch_related('windows_version'))
 
-    data = list(queryset_values)
+    # Fetch DLLInstances with prefetch_related for optimization.
+    dll_instances = DLLInstance.objects.filter(
+        dll=dll
+    ).prefetch_related(
+        windows_updates_prefetch
+    ).annotate(
+        function_count=Count('function__id'),  # Count the functions related to the DLLInstance
+    )
+
+    data = []
+    for instance in dll_instances:
+        windows_updates = [{
+            "id": wu.id,
+            "name": wu.name,
+            "release_date": wu.release_date,
+            "windows_version__name": wu.windows_version.name,
+        } for wu in instance.windows_updates.all()]
+
+        data.append({
+            'id': instance.id,
+            'signing_date': instance.signing_date,
+            'version': instance.version,
+            'size': instance.size,
+            'virtual_size': instance.virtual_size,
+            'sha256': instance.sha256,
+            'function_count': instance.function_count,
+            'insider': instance.is_insider(),
+            'windows_updates': windows_updates,
+            'first_seen_date': instance.get_first_seen(),
+        })
+
+    # Sorting data by version using LooseVersion
     data = sorted(data, key=lambda obj: LooseVersion(obj["version"].split(" ")[0]))
-    counter = 0
-    for i in data:
-        i["function_count"] = function_count = Function.objects.filter(
-            dll_instance=queryset[counter]  # could be any of these dll instances
-        ).count()
-        i["insider"] = True if (
-                    DLLInstance.objects.get(pk=i["id"]).windows_updates.first().name[0:2] == "IP") else False
-        i["windows_updates"] = list(queryset[counter].windows_updates.values(
-            "id",
-            "name",
-            "release_date",
-            "windows_version__name",
-        ))
-
-        # If the singing date field in the PE is used for hashing then we can get
-        # first seen from the oldest Windows update it was contained in.
-        i["first_seen_date"] = i["signing_date"]
-        del i["signing_date"]
-
-        get_version_as_date_backup(i)
-
-        counter += 1
 
     wrapper_json = {
         "instances": data,
-        "dll": model_to_dict(DLL.objects.get(name=dll_name))
+        "dll": model_to_dict(dll)
     }
     return JsonResponse(wrapper_json, safe=False, json_dumps_params={'indent': 2})
 
@@ -354,3 +366,133 @@ def dll(request, dll_instance_id):
     get_version_as_date_backup(dict_obj)
 
     return JsonResponse(dict_obj, safe=False, json_dumps_params={'indent': 2})
+
+
+def get_dll_instance_by_sha256(request):
+    # Retrieve SHA256 from GET parameters
+    sha256 = request.GET.get('sha256', None)
+
+    # Check if SHA256 is provided
+    if not sha256:
+        return JsonResponse({"error": "SHA256 parameter is required."}, status=400)
+
+    try:
+        # Query the DLLInstance model for the provided SHA256
+        dll_instance = DLLInstance.objects.get(sha256__iexact=sha256)
+
+        # Serialize the DLLInstance object
+        data = serializers.serialize('json', [dll_instance, ])
+        data = json.loads(data)
+
+        # Extract the fields and add custom handling for related objects if necessary
+        dll_instance_data = data[0]['fields']
+        dll_instance_data["id"] = data[0]["pk"]
+        # Example of adding related model data, customize according to your model relations
+        dll_instance_data['windows_updates'] = list(
+            dll_instance.windows_updates.values('name', 'release_date', 'release_version'))
+
+        # Return the serialized DLLInstance
+        return JsonResponse(dll_instance_data, safe=False)
+    except DLLInstance.DoesNotExist:
+        # Handle the case where no DLLInstance is found for the provided SHA256
+        return JsonResponse({"error": "DLLInstance not found."}, status=404)
+
+
+@require_http_methods(["GET"])
+def get_dll_function_diffs(request, dll_name):
+    # Step 1: Retrieve the DLL name from GET parameters
+    # Step 2: Fetch related DLL instances sorted by 'version'
+    try:
+        dll = DLL.objects.get(name=dll_name)
+    except DLL.DoesNotExist:
+        return JsonResponse({'error': 'DLL not found'}, status=404)
+
+    dll_instances = dll.dllinstance_set.all().order_by('version')
+    # Placeholder for custom sorting function - to be implemented by you
+    # dll_instances = custom_sort(dll_instances)
+
+    # Step 3: Determine the number of recent DLL instances to compare
+    n = request.GET.get('n', default=len(dll_instances))
+    try:
+        n = int(n)
+    except ValueError:
+        return JsonResponse({'error': 'Invalid number specified'}, status=400)
+
+    diffs = []
+    # Iterate over the n most recent DLL instances to find added functions
+    for i in range(max(1, len(dll_instances) - n + 1), len(dll_instances)):
+        current_instance = dll_instances[i]
+        previous_instance = dll_instances[i - 1] if i - 1 >= 0 else None
+
+        current_functions_set = set(current_instance.function_set.values_list('function_name', flat=True))
+        if previous_instance:
+            previous_functions_set = set(previous_instance.function_set.values_list('function_name', flat=True))
+        else:
+            previous_functions_set = set()
+
+        added_functions = current_functions_set - previous_functions_set
+        diffs.append({
+            'dll_instance_sha256': current_instance.sha256,
+            'version': current_instance.version,
+            'added_functions': list(added_functions)
+        })
+
+    return JsonResponse({'dll_name': dll_name, 'function_diffs': diffs}, safe=False,
+                        json_dumps_params={'indent': 2}) @ require_http_methods(["GET"])
+
+
+def get_dll_function_diffs(request, dll_name):
+    """
+    This function shows recent changes to DLLs by returning newly added functions.
+
+    We cannot diff between insider and non-insider as the DLL versions do not sort correctly.
+
+    To solve this, we check to see if there are enough insider DLLs to provide a decent update.
+
+    If there is not at least 3 insider preview DLLs, we ignore them and just diff the normal DLLs.
+    """
+    try:
+        dll = DLL.objects.get(name=dll_name)
+    except DLL.DoesNotExist:
+        return JsonResponse({'error': 'DLL not found'}, status=404)
+
+    # Do we have enough insiders?
+    all_dll_instances = DLLInstance.objects.filter(dll__name=dll_name)
+    insider_instances = [instance for instance in all_dll_instances if instance.is_insider()]
+
+    if len(insider_instances) < 4:
+        # Not enough insider DLL instances, lets default back
+        dll_instances = [instance for instance in all_dll_instances if not instance.is_insider()]
+    else:
+        dll_instances = insider_instances
+
+    dll_instances = sorted(dll_instances, key=lambda obj: LooseVersion(obj.version.split(" ")[0]))
+
+    n = request.GET.get('n', default=4)
+    try:
+        n = int(n)
+    except ValueError:
+        return JsonResponse({'error': 'Invalid number specified'}, status=400)
+
+    before_functions = set(
+        dll_instances[len(dll_instances) - n - 1].function_set.values_list('function_name', flat=True)
+    )
+
+    after_functions = set(
+        dll_instances[-1].function_set.values_list('function_name', flat=True)
+    )
+
+    added_functions = after_functions - before_functions
+    removed_functions = before_functions - after_functions
+
+    excluded_prefixes = ("FUN_", "wil_", "_")
+
+    added_functions = set(f for f in added_functions if not f.startswith(excluded_prefixes))
+    removed_functions = set(f for f in removed_functions if not f.startswith(excluded_prefixes))
+
+    diffs = {
+        'added_functions': list(added_functions),
+        'removed_functions': list(removed_functions)
+    }
+
+    return JsonResponse({'dll_name': dll_name, 'function_diffs': diffs}, safe=False, json_dumps_params={'indent': 2})

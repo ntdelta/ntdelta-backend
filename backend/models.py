@@ -1,5 +1,5 @@
 from django.db import models
-
+from django.db.models import Q
 
 class WindowsVersion(models.Model):
     name = models.CharField(max_length=100)
@@ -58,6 +58,18 @@ class DLLInstance(models.Model):
                 return oldest_windows_update.release_date
 
         return self.signing_date
+
+    def is_insider(self):
+        """
+        Was this DLL taken from insider preview?
+        """
+        # Use Q objects to filter names starting with "KB" or "BASE"
+        updates = self.windows_updates.filter(Q(name__startswith="KB") | Q(name__startswith="BASE"))
+        # If any such updates are found, it means the DLL is not from an insider preview
+        if updates.exists():
+            return False
+        # Otherwise, it's potentially from an insider preview
+        return True
 
     def __str__(self):
         return self.sha256
