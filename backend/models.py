@@ -42,6 +42,23 @@ class DLLInstance(models.Model):
     size = models.IntegerField()
     virtual_size = models.IntegerField()
 
+    def get_oldest_windows_update(self):
+        updates = self.windows_updates.order_by('release_date')
+        return updates.first() if updates.exists() else None
+
+    def get_first_seen(self):
+        """
+        This function tries to use the signing date. If it is not
+        set, it will default to the date of the first update it is
+        part of.
+        """
+        if str(self.signing_date) == '1970-01-01 00:00:00+00:00':
+            oldest_windows_update = self.get_oldest_windows_update()
+            if oldest_windows_update:
+                return oldest_windows_update.release_date
+
+        return self.signing_date
+
     def __str__(self):
         return self.sha256
 
