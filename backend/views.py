@@ -1,8 +1,8 @@
 import base64
 from django.core import serializers
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, Http404
 from distutils.version import LooseVersion
-from backend.models import WindowsUpdate, DLL, Function, WindowsVersion, DLLInstance
+from backend.models import WindowsUpdate, DLL, Function, WindowsVersion, DLLInstance, Patch, PatchFunctionRelation
 from django.views.decorators.cache import cache_page
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
@@ -496,3 +496,83 @@ def get_dll_function_diffs(request, dll_name):
     }
 
     return JsonResponse({'dll_name': dll_name, 'function_diffs': diffs}, safe=False, json_dumps_params={'indent': 2})
+
+
+def patch_list(request):
+    # Query all Patch objects
+    patches = Patch.objects.prefetch_related('patch_functions__function').all()
+
+    # Serialize Patch objects including related patch functions
+    patches_data = []
+    for patch in patches:
+        patch_dict = {
+            "id": patch.id,
+            "name": patch.name,
+            "description": patch.description,
+            "url": patch.url,
+            "dll": str(patch.pre_patch_dll_instance.dll),
+            "pre_patch_dll_instance_sha256": patch.pre_patch_dll_instance.sha256,
+            "post_patch_dll_instance_sha256": patch.post_patch_dll_instance.sha256,
+            "patch_functions": [],
+        }
+
+        # Dynamically add related PatchFunctionRelation data
+        for pf in patch.patch_functions.all():
+            pf_dict = {
+                "title": pf.title,
+                "description": pf.description,
+                # Assuming Function model has attributes like function_name you want to include
+                "function": {
+                    "name": pf.function.function_name,
+                    "c_code": pf.function.function_c,
+                    "c_hash": pf.function.function_c_hash,
+                }
+            }
+            patch_dict["patch_functions"].append(pf_dict)
+
+        patches_data.append(patch_dict)
+
+    return JsonResponse(patches_data, safe=False)
+
+
+def patch_detail(request, id):
+    # Try to get the Patch object by ID
+    try:
+        patch = Patch.objects.prefetch_related('patch_functions__function').get(pk=id)
+    except Patch.DoesNotExist:
+        # If no Patch is found with the given ID, return a 404 response
+        raise Http404("Patch not found")
+
+    # Serialize the Patch object
+    patch_data = {
+        "id": patch.id,
+        "name": patch.name,
+        "description": patch.description,
+        "url": patch.url,
+        "dll": str(patch.pre_patch_dll_instance.dll),
+        "pre_patch_dll":
+            {
+                "sha256": patch.pre_patch_dll_instance.sha256,
+                "id": patch.pre_patch_dll_instance.id,
+            },
+        "post_patch_dll":
+            {
+                "sha256": patch.post_patch_dll_instance.sha256,
+                "id": patch.post_patch_dll_instance.id,
+            },
+        "patch_functions": [],
+    }
+
+    for pf in patch.patch_functions.all():
+        pf_data = {
+            "title": pf.title,
+            "description": pf.description,
+            "function": {
+                "name": pf.function.function_name,
+                "c_code": pf.function.function_c,
+                "instance_id": pf.function.dll_instance_id,
+            }
+        }
+        patch_data["patch_functions"].append(pf_data)
+
+    return JsonResponse(patch_data)

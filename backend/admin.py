@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import DLL, DLLInstance, WindowsUpdate, WindowsVersion, Function
+from .models import DLL, DLLInstance, WindowsUpdate, WindowsVersion, Function, Patch, PatchFunctionRelation
 
 
 class DllInstanceAdminInline(admin.TabularInline):
@@ -44,8 +44,30 @@ class WindowsVersionAdmin(admin.ModelAdmin):
     list_display = ["name"]
 
 
+class PatchFunctionRelationInline(admin.TabularInline):
+    model = PatchFunctionRelation
+    extra = 1  # Sets the number of extra blank forms in the inline
+    can_delete = True  # Allows deletion of existing relations
+
+
+# Admin class for Patch
+class PatchAdmin(admin.ModelAdmin):
+    list_display = ("name", "description", "url", "pre_patch_dll_instance", "post_patch_dll_instance")
+    search_fields = ["name", "description"]
+    inlines = [PatchFunctionRelationInline]  # Includes the inline for PatchFunctionRelation
+
+
+# Admin class for PatchFunctionRelation (if direct management is needed)
+class PatchFunctionRelationAdmin(admin.ModelAdmin):
+    list_display = ("patch", "function", "title", "description")
+    list_filter = ["patch", "function"]
+    search_fields = ["patch__name", "function__function_name", "title"]
+
+
 admin.site.register(DLL, DLLAdmin)
 admin.site.register(DLLInstance, DLLInstanceAdmin)
 admin.site.register(WindowsUpdate, WindowsUpdateAdmin)
 admin.site.register(WindowsVersion, WindowsVersionAdmin)
 admin.site.register(Function, FunctionAdmin)
+admin.site.register(Patch, PatchAdmin)
+# admin.site.register(PatchFunctionRelation, PatchFunctionRelationAdmin)

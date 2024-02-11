@@ -1,0 +1,74 @@
+ {
+     "patches" : [
+         {
+             "pre_patch_dll_instance_hash": "b9e11f2c5f247addf5f589efdfcf6b256dc31c90965c5e01355435debcd0255a",
+             "post_patch_dll_instance_hash": "c6c8cda0eb1dbb372d25f6f06f88ed464e42d5228cfd7a5f2a7ffc530c9080fa",
+             "patch": {
+                 "name": "CVE-2018-1040 - SHA1 Block Size Integer Overflow",
+                 "description": "Windows Code Integrity Module Denial of Service Vulnerability. This flaw enables remote attackers to cause a kernel crash by downloading and saving a maliciously crafted .dll file through Internet Explorer or Edge. Upon reboot, Windows 10 systems enter a continuous crash loop. The crash is due to an integer overflow in the processing of a crafted SizeOfHeaders value within a .dll file",
+                 "url": "https://www.fortinet.com/blog/threat-research/microsoft-windows-remote-kernel-crash-vulnerability"
+             },
+             "functions": [
+                 {
+                     "name": "CipImageGetImageHash",
+                     "flag": "pre",
+                     "title": "Function vulnerable to DoS.",
+                     "description": "This implementation trusts the DLL SizeOfHeaders when calculating the SHA1 hash. This leads to a memory read access violation. "
+                 },
+                 {
+                     "name": "CipImageGetImageHash",
+                     "flag": "post",
+                     "title": "Additional header validation logic.",
+                     "description": "Adds a call to CiValidateImageHeaderMapping before proceeding. CiValidateImageHeaderMapping adds additional section header checks and adds extended validation for different header types. "
+                 },
+                 {
+                     "name": "CiValidateImageHeaderMapping",
+                     "flag": "pre",
+                     "title": "Naive prior implementation.",
+                     "description": "This implementation checks the RtlImageNtHeaderEx return value, the bitness of the PE, and also ensures the SizeOfImage is less than or equal to the second parameter. "
+                 },
+                 {
+                     "name": "CiValidateImageHeaderMapping",
+                     "flag": "post",
+                     "title": "Enhanced Security Checks.",
+                     "description": "The new implementation adds checks against specific sizes (depending on the PE Header type) to ensure the integrity and correctness of the image being processed. There are now early returns for  STATUS_INTEGER_OVERFLOW, STATUS_INVALID_IMAGE_FORMAT, and STATUS_INVALID_BUFFER_SIZE. They also now bounds-check pointer values to ensure they do not under/overflow."
+                 }
+             ]
+         },
+          {
+             "pre_patch_dll_instance_hash": "7eb6ec836ea826181d0b77ef4bb211ecfa68b9645c19b87d2841f11029c50c6f",
+             "post_patch_dll_instance_hash": "6ae927255b0576af136df57210a1ba64c42a504d50867f58b7a128b4fd26a77c",
+             "patch": {
+                 "name": "CVE-2020-0601 - CurveBall",
+                 "description": "Critical vulnerability exploiting flaws in Windows' CryptoAPI's handling of Elliptic Curve Cryptography (ECC), allowing attackers to craft seemingly legitimate cryptographic certificates, undermining secure TLS communications",
+                 "url": "https://www.trendmicro.com/en_ph/research/20/b/an-in-depth-technical-analysis-of-curveball-cve-2020-0601.html"
+             },
+             "functions": [
+                 {
+                     "name": "ChainComparePublicKeyParametersAndBytes",
+                     "flag": "post",
+                     "title": "New comparison function.",
+                     "description": "Replacing the previous simple comparison between issuer and trusted root public key hash, this function now compares the public key parameters and bytes between the trusted root certificate and the certificate that was actually used to verify the signature on the end certificate."
+                 },
+                 {
+                     "name": "ChainLogMSRC54294Error",
+                     "flag": "post",
+                     "title": "Logging potential exploitation attempts.",
+                     "description": "Writes information extracted from the certificate to the Microsoft-Windows-Audit-CVE ETW feed."
+                 },
+                 {
+                     "name": "ChainGetSubjectStatus",
+                     "flag": "pre",
+                     "title": "Insufficient validation.",
+                     "description": "This function was part of the validation process, tasked with verifying the authenticity and trustworthiness of a certificate within a chain. However, it lacked the specific checks necessary to detect the manipulation of elliptic curve parameters in crafted certificates."
+                 },
+                 {
+                     "name": "ChainGetSubjectStatus",
+                     "flag": "post",
+                     "title": "Additional checks and exploit attempt logging.",
+                     "description": "The function now includes checks for elliptic curve parameters of the certificate's public key to detect anomalies indicative of crafted certificates and also includes a mechanism to log potential exploitation attempts."
+                 }
+             ]
+         }
+     ]
+ }

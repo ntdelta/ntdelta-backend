@@ -31,4 +31,6 @@ urlpatterns = [
     path('api/windows_updates', views.windows_updates),
     path('api/functions', views.functions),
     path('api/functions/<int:function_id>', views.function),
+    path('api/patches/', views.patch_list, name='patch-list'),
+    path('api/patch/<int:id>', views.patch_detail, name='patch-detail'),
 ]

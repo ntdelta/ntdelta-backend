@@ -1,6 +1,7 @@
 from django.db import models
 from django.db.models import Q
 
+
 class WindowsVersion(models.Model):
     name = models.CharField(max_length=100)
 
@@ -83,3 +84,28 @@ class Function(models.Model):
 
     def __str__(self):
         return self.function_name
+
+
+class Patch(models.Model):
+    name = models.CharField(max_length=128)
+    description = models.TextField()
+    url = models.URLField(max_length=2048)
+    pre_patch_dll_instance = models.ForeignKey(DLLInstance, on_delete=models.CASCADE, related_name='pre_patch_patches')
+    post_patch_dll_instance = models.ForeignKey(DLLInstance, on_delete=models.CASCADE,
+                                                related_name='post_patch_patches')
+
+    class Meta:
+        verbose_name_plural = "Patches"
+
+    def __str__(self):
+        return self.name
+
+
+class PatchFunctionRelation(models.Model):
+    patch = models.ForeignKey(Patch, on_delete=models.CASCADE, related_name='patch_functions')
+    function = models.ForeignKey(Function, on_delete=models.CASCADE)
+    title = models.CharField(max_length=128)
+    description = models.TextField()
+
+    def __str__(self):
+        return f"{self.patch.name} - {self.function.function_name}"
