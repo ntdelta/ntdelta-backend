@@ -9,7 +9,7 @@ from django.conf import settings
 import json
 import datetime
 from django.forms.models import model_to_dict
-from django.db.models import Prefetch, Count
+from django.db.models import Prefetch, Count, Q
 from django.views.decorators.http import require_http_methods
 
 
@@ -261,11 +261,19 @@ def list_dlls_by_name(request, dll_name):
 
 @cache_page(60 * 60 * 24)  # Cache for a day
 def functions(request):
-    queryset = Function.objects.values('dll_instance',
-                                       'function_name',
-                                       'function_c',
-                                       'function_c_hash')[:10]
-    data = list(queryset)
+    dll_name = request.GET.get('dll_name')
+
+    if not dll_name:
+        return JsonResponse({'error': 'DLL name is required'}, status=400)
+
+    # Using Count to get function names and their occurrences
+    function_counts = Function.objects.filter(dll_instance__dll__name=dll_name) \
+        .exclude(function_name__startswith="FUN_")\
+        .values('function_name') \
+        .annotate(count=Count('function_name')) \
+        .order_by('count')
+
+    data = list(function_counts.reverse())
     return JsonResponse(data, safe=False, json_dumps_params={'indent': 2})
 
 
@@ -368,6 +376,7 @@ def dll(request, dll_instance_id):
     return JsonResponse(dict_obj, safe=False, json_dumps_params={'indent': 2})
 
 
+@cache_page(60 * 60 * 24)  # Cache for a day
 def get_dll_instance_by_sha256(request):
     # Retrieve SHA256 from GET parameters
     sha256 = request.GET.get('sha256', None)
@@ -398,6 +407,7 @@ def get_dll_instance_by_sha256(request):
         return JsonResponse({"error": "DLLInstance not found."}, status=404)
 
 
+@cache_page(60 * 60 * 24)  # Cache for a day
 @require_http_methods(["GET"])
 def get_dll_function_diffs(request, dll_name):
     # Step 1: Retrieve the DLL name from GET parameters
@@ -441,6 +451,7 @@ def get_dll_function_diffs(request, dll_name):
                         json_dumps_params={'indent': 2}) @ require_http_methods(["GET"])
 
 
+@cache_page(60 * 60 * 24)  # Cache for a day
 def get_dll_function_diffs(request, dll_name):
     """
     This function shows recent changes to DLLs by returning newly added functions.
@@ -498,6 +509,7 @@ def get_dll_function_diffs(request, dll_name):
     return JsonResponse({'dll_name': dll_name, 'function_diffs': diffs}, safe=False, json_dumps_params={'indent': 2})
 
 
+@cache_page(60 * 60 * 24)  # Cache for a day
 def patch_list(request):
     # Query all Patch objects
     patches = Patch.objects.prefetch_related('patch_functions__function').all()
@@ -535,6 +547,7 @@ def patch_list(request):
     return JsonResponse(patches_data, safe=False)
 
 
+@cache_page(60 * 60 * 24)  # Cache for a day
 def patch_detail(request, id):
     # Try to get the Patch object by ID
     try:
@@ -576,3 +589,37 @@ def patch_detail(request, id):
         patch_data["patch_functions"].append(pf_data)
 
     return JsonResponse(patch_data)
+
+
+@cache_page(60 * 60 * 24)  # Cache for a day
+def search_functions_by_name(request):
+    function_name = request.GET.get('function_name')
+    dll_name = request.GET.get('dll_name')
+
+    if function_name and dll_name:
+        filters = Q(function_name__iexact=function_name)
+        if dll_name:
+            filters &= Q(dll_instance__dll__name=dll_name)
+        functions = Function.objects.filter(filters)
+
+        results = []
+        for function in functions:
+            dll_instance = function.dll_instance
+            dll_info = {
+                'dll_name': dll_instance.dll.name,
+                'dll_version': dll_instance.version,
+                'first_seen': dll_instance.get_first_seen(),
+                'insider': dll_instance.is_insider()
+            }
+            results.append({
+                'function': {
+                    "name": function.function_name,
+                    "c_code": function.function_c,
+                    "c_hash": function.function_c_hash
+                },
+                'dll_instance': dll_info,
+            })
+        results = sorted(results, key=lambda obj: LooseVersion(obj["dll_instance"]["dll_version"].split(" ")[0]))
+        return JsonResponse({'functions': results})
+    else:
+        return JsonResponse({'error': 'Function name and DLL name are both required'}, status=400)

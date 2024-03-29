@@ -33,4 +33,5 @@ urlpatterns = [
     path('api/functions/<int:function_id>', views.function),
     path('api/patches/', views.patch_list, name='patch-list'),
     path('api/patch/<int:id>', views.patch_detail, name='patch-detail'),
+    path('api/functions/search', views.search_functions_by_name, name='search_functions'),
 ]
