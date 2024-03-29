@@ -266,15 +266,11 @@ def functions(request):
     if not dll_name:
         return JsonResponse({'error': 'DLL name is required'}, status=400)
 
-    # Using Count to get function names and their occurrences
-    function_counts = Function.objects.filter(dll_instance__dll__name=dll_name) \
-        .exclude(function_name__startswith="FUN_")\
-        .values('function_name') \
-        .annotate(count=Count('function_name')) \
-        .order_by('count')
+    function_counts = Function.objects.filter(
+        dll_instance__dll__name=dll_name,
+    ).values_list('function_name', flat=True).distinct()
 
-    data = list(function_counts.reverse())
-    return JsonResponse(data, safe=False, json_dumps_params={'indent': 2})
+    return JsonResponse(list(function_counts), safe=False)
 
 
 @cache_page(60 * 60 * 24)  # Cache for a day
